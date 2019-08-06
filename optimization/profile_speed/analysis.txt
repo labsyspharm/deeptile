@@ -1,0 +1,21 @@
+Timer unit: 1e-06 s
+
+Total time: 3407.29 s
+File: analysis.py
+Function: tifffile_fn at line 6
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+     6                                           @profile
+     7                                           def tifffile_fn(
+     8                                                   image_filepath: str,
+     9                                                   output_folderpath: str) -> None:
+    10         1         38.0     38.0      0.0      temp_filepath = os.path.join(output_folderpath, 'test.npy')
+    11        11         25.0      2.3      0.0      for ch in range(10):
+    12        10     280659.0  28065.9      0.0          with tifffile.TiffFile(image_filepath) as tif:
+    13        10  316785432.0 31678543.2      9.3              wsi = tif.asarray(series=0, key=ch)
+    14   1000010    3993961.0      4.0      0.1              for j in range(100000):
+    15   1000000   13823924.0     13.8      0.4                  x = wsi[j:j+200, j:j+200]
+    16   1000000 3072406692.0   3072.4     90.2                  np.save(temp_filepath, x)
+    17         1          1.0      1.0      0.0      return
+
