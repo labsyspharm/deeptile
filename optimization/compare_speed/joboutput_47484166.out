@@ -1,0 +1,5 @@
+fn: skimage, #channel: 1, runtime: 19.718
+fn: skimage, #channel: 3, runtime: 97.310
+fn: tifffile, #channel: 1, runtime: 20.612
+fn: tifffile, #channel: 3, runtime: 86.010
+Done.
