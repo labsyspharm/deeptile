@@ -1,0 +1,6 @@
+GPU available?: False
+device ID: default, dimension: 500, n: 10000 load time: 4.3 msec, run time: 4154.0 usec
+Done.
+GPU available?: True
+device ID: default, dimension: 500, n: 10000 load time: 555.0 msec, run time: 92.9 usec
+Done.
