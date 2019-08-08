@@ -2,6 +2,7 @@ import numpy as np
 import time
 import argparse
 
+import tqdm
 import tensorflow as tf
 
 import load_MNIST_dataset
@@ -18,7 +19,7 @@ if __name__ == '__main__':
     data_dict= load_MNIST_dataset.load(batch_size=BATCH_SIZE)
     ts_end = time.time()
     print('Prepare dataset took {:.3f} sec.'.format(ts_end-ts_start))
-    # setup module and optimizer
+    # setup model and optimizer
     ts_start = time.time()
     cvae_model = CVAE.CVAE(latent_dim=50, input_shape=data_dict['data_shape'])
     optimizer = tf.keras.optimizers.Adam()
@@ -31,7 +32,7 @@ if __name__ == '__main__':
         # train loop
         ts_start = time.time()
         train_loss = np.zeros(data_dict['train_batch_count'])
-        for index, (train_x,) in tqdm.tqdm(
+        for index, train_x in tqdm.tqdm(
                 iterable=enumerate(data_dict['train_dataset']), 
                 desc='train', 
                 total=data_dict['train_batch_count'],
@@ -41,7 +42,7 @@ if __name__ == '__main__':
         train_elbo = -train_loss.mean()
         # progress report
         test_loss = np.zeros(data_dict['test_batch_count'])
-        for index, (test_x,) in tqdm.tqdm(
+        for index, test_x in tqdm.tqdm(
                 iterable=enumerate(data_dict['test_dataset']), 
                 desc='test', 
                 total=data_dict['test_batch_count'],

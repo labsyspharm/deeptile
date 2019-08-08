@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=runCVAE
+#SBATCH --job-name=runMNIST
 #SBATCH -n 1               # Number of cores
 #SBATCH -N 1                # Ensure that all cores are on one machine
 #SBATCH -t 0-12:00          # Runtime in D-HH:MM, minimum of 10 minutes
@@ -13,4 +13,4 @@
 
 module load gcc/6.2.0 python/3.6.0 cuda/10.0
 source /home/hw233/virtualenv/py3/bin/activate
-python run_tile.py
+python run_MNIST.py
