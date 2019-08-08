@@ -62,13 +62,10 @@ def save_tile(
         # wsi = Whole Slide Image
         wsi = tif.asarray(series=0, key=original_channel)
         # normalization by channel
-        # note that the axis=0 in sklearn means normalize each column (sample axis = 0)
-        # tensorflow.keras.utils.normalize has axis=-1 means normalize each last column (feature axis = -1)
-        sklearn.preprocessing.minmax_scale(
-                X=wsi, feature_range=(0, 1), axis=0, copy=False)
+        wsi_normalized = sklearn.preprocessing.scale(wsi)
         # loop through cells
         for cell in cell_list:
-            tile = wsi[
+            tile = wsi_normalized[
                     cell['Y_position']-tile_width//2:cell['Y_position']+tile_width//2,
                     cell['X_position']-tile_width//2:cell['X_position']+tile_width//2]
             # save to disk

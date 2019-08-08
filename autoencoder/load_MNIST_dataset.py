@@ -12,9 +12,17 @@ def load(batch_size: int) -> typing.Dict[str, typing.Any]:
     # reshape for the channel dimension, change type to float32
     train_images = train_images.reshape(train_images.shape[0], 28, 28, 1).astype('float32')
     test_images = test_images.reshape(test_images.shape[0], 28, 28, 1).astype('float32')
-    # normalize intensity to the range [0., 1.]
-    train_images /= 255.
-    test_images /= 255.
+    # get normalizer
+    train_flat = train_images.reshape((-1, train_images.shape[-1]))
+    test_flat = test_images.reshape((-1, test_images.shape[-1]))
+    all_flat = np.concatenate([train_flat, test_flat], axis=0)
+    mean = all_flat.mean(axis=0)
+    std = all_flat.std(axis=0)
+    # normalization
+    train_images -= mean
+    train_images /= std
+    test_images -= mean
+    test_images /= std
     # convert to tf.Dataset class
     train_dataset = tf.data.Dataset.from_tensor_slices(train_images)\
             .shuffle(train_images.shape[0])\
