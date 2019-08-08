@@ -30,8 +30,11 @@ if __name__ == '__main__':
     print('Prepare dataset took {:.3f} sec.'.format(ts_end-ts_start))
     # setup model and optimizer
     ts_start = time.time()
-    cvae_model = CVAE.CVAE(latent_dim=10, input_shape=data_dict['data_shape'])
-    optimizer = tf.keras.optimizers.Adam()
+    cvae_model = CVAE.CVAE(
+            latent_dim=10, 
+            input_shape=data_dict['data_shape'],
+            optimizer=tf.keras.optimizers.Adam(),
+            )
     ts_end = time.time()
     print('Prepare model took {:.3f} sec.'.format(ts_end-ts_start))
     # epoch loop
@@ -47,7 +50,8 @@ if __name__ == '__main__':
                 total=data_dict['train_batch_count'],
                 disable=not verbose,
                 ):
-            train_loss[index] = CVAE.compute_apply_gradients(cvae_model, train_x, optimizer)
+            loss = cvae_model.compute_apply_gradients(train_x)
+            train_loss[index] = loss.numpy()
         train_elbo = -train_loss.mean()
         # progress report
         test_loss = np.zeros(data_dict['test_batch_count'])
@@ -57,7 +61,8 @@ if __name__ == '__main__':
                 total=data_dict['test_batch_count'],
                 disable=not verbose,
                 ):
-            test_loss[index] = CVAE.compute_loss(cvae_model, test_x)
+            loss = cvae_model.compute_loss(test_x)
+            test_loss[index] = loss.numpy()
         test_elbo = -test_loss.mean()
         ts_end = time.time()
         print('Epoch: {}/{} done, Train ELBO: {:.3f} Test ELBO: {:.3f}, Runtime: {:.3f} sec.'\
