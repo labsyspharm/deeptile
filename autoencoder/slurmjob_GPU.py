@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=runMNIST
+#SBATCH --job-name=runTile
 #SBATCH -n 1               # Number of cores
 #SBATCH -N 1                # Ensure that all cores are on one machine
 #SBATCH -t 0-12:00          # Runtime in D-HH:MM, minimum of 10 minutes
 #SBATCH -p gpu            # Partition to submit to
-#SBATCH --gres=gpu:teslaK80:1 # Request for 1 Tesla K80 GPU card
+#SBATCH --gres=gpu:1 # Request for 1 GPU card
 #SBATCH --mem-per-cpu=32G    # Memory pool for all cores (see also --mem-per-cpu)
 #SBATCH -o joboutput_%j.out # File to which STDOUT will be written, %j inserts jobid
 #SBATCH -e joberrors_%j.err # File to which STDERR will be written, %j inserts jobid
@@ -13,4 +13,4 @@
 
 module load gcc/6.2.0 python/3.6.0 cuda/10.0
 source /home/hw233/virtualenv/py3/bin/activate
-python run_MNIST.py
+python run_tile.py
