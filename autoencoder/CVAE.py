@@ -1,6 +1,8 @@
 import numpy as np
 import typing
+
 import tensorflow as tf
+import tensorflow_probability as tfp
 
 # convolutional variational autoencoder
 class CVAE(tf.keras.Model):
@@ -8,10 +10,13 @@ class CVAE(tf.keras.Model):
     def __init__(self, 
             latent_dim: int,
             input_shape: typing.Tuple[int, int, int],
+            optimizer: tf.optimizers.Optimizer,
             ) -> None:
         # initiation of the superclass of CVAE, ie. tf.keras.Model
         super(CVAE, self).__init__()
-        # populate attributes
+        # set optimizer
+        self.optimizer = optimizer
+        # model architecture
         self.latent_dim = latent_dim
         self.data_shape = input_shape
         conv1_filter = 32
@@ -101,37 +106,33 @@ class CVAE(tf.keras.Model):
         eps = tf.random.normal(shape=tf.shape(mean))
         return eps * tf.exp(logvar * .5) + mean
 
-    def decode(self, z, apply_sigmoid=False):
-        logits = self.decoder(z)
-        if apply_sigmoid:
-            probs = tf.sigmoid(logits)
-            return probs
-        return logits
+    def decode(self, z):
+        x_pred = self.decoder(z)
+        return x_pred
 
-# utility functions below
+    def compute_loss(self, x):
+        # reconstruction in the data space
+        # MSE assumes Gaussian noise
+        mean, logvar = self.encode(x)
+        z = self.reparameterize(mean, logvar)
+        x_pred = self.decode(z)
+        reconstruction_loss = tf.math.reduce_mean(tf.keras.losses.MSE(x, x_pred))
+        # K-L Divergence in the latent space
+        def KLD_from_logprob(log_y_true, log_y_pred):
+            y_true = tf.math.exp(log_y_true)
+            return tf.math.reduce_mean(y_true*(log_y_true-log_y_pred))
+        def log_pdf(sample, mu, sigma):
+            return tfp.distributions.MultivariateNormalDiag(
+                    loc=mu, scale_diag=sigma).log_prob(sample)
+        log_p_data = log_pdf(z, mean, tf.math.exp(logvar * .5))
+        log_p_target = log_pdf(z, tf.zeros(shape=mean.shape), tf.ones(logvar.shape))
+        latent_loss = KLD_from_logprob(log_p_target, log_p_data)
+        return reconstruction_loss+latent_loss
 
-def log_normal_pdf(sample, mean, logvar, raxis=1):
-    log2pi = tf.math.log(2. * np.pi)
-    return tf.reduce_sum(-.5 * ((sample - mean) ** 2. * tf.exp(-logvar) + logvar + log2pi),
-            axis=raxis)
-
-def compute_loss(model, x):
-    mean, logvar = model.encode(x)
-    z = model.reparameterize(mean, logvar)
-    x_logit = model.decode(z)
-    # I need to understand the cross entropy term below someday
-    # also this line took too much memory so 20G is not enough for one batch
-    cross_ent = tf.nn.sigmoid_cross_entropy_with_logits(logits=x_logit, labels=x)
-    logpx_z = -tf.reduce_sum(cross_ent, axis=[1, 2, 3])
-    logpz = log_normal_pdf(z, 0., 0.)
-    logqz_x = log_normal_pdf(z, mean, logvar)
-    loss = -tf.reduce_mean(logpx_z + logpz - logqz_x)
-    return loss
-
-def compute_apply_gradients(model, x, optimizer):
-    with tf.GradientTape() as tape:
-        loss = compute_loss(model, x)
-    gradients = tape.gradient(loss, model.trainable_variables)
-    optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-    return loss.numpy()
+    def compute_apply_gradients(self, x):
+        with tf.GradientTape() as tape:
+            loss = self.compute_loss(x)
+        gradients = tape.gradient(loss, self.trainable_variables)
+        self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+        return loss
 
