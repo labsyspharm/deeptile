@@ -6,6 +6,7 @@ import typing
 import multiprocessing
 
 import tifffile
+import sklearn.preprocessing
 
 # define ROI
 def within_ROI(
@@ -60,6 +61,11 @@ def save_tile(
     with tifffile.TiffFile(image_filepath) as tif:
         # wsi = Whole Slide Image
         wsi = tif.asarray(series=0, key=original_channel)
+        # normalization by channel
+        # note that the axis=0 in sklearn means normalize each column (sample axis = 0)
+        # tensorflow.keras.utils.normalize has axis=-1 means normalize each last column (feature axis = -1)
+        sklearn.preprocessing.minmax_scale(
+                X=wsi, feature_range=(0, 1), axis=0, copy=False)
         # loop through cells
         for cell in cell_list:
             tile = wsi[
@@ -132,7 +138,7 @@ if __name__ == '__main__':
     image_filename = '26531POST.ome.tif'
     histoCAT_filename = '26531POST.csv'
     channel_filename = 'channel_info.csv'
-    tile_foldername = 'tiles_cleanChannel'
+    tile_foldername = 'tiles_normalized'
     image_filepath = os.path.join(input_folderpath, image_filename)
     histoCAT_filepath = os.path.join(input_folderpath, histoCAT_filename)
     channel_filepath = os.path.join(input_folderpath, channel_filename)
