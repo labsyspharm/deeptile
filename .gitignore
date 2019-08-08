@@ -1,0 +1,3 @@
+# ignore job error log and output
+*.err
+*.out
