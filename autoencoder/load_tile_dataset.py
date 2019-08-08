@@ -1,6 +1,8 @@
 import numpy as np
 import os
 import typing
+
+import tifffile
 import tensorflow as tf
 
 def tile_generator(
@@ -26,16 +28,33 @@ def tile_generator(
 def get_channel_bounds(
         tile_filepath_list: typing.List[str],
         ) -> np.ndarray:
-    channel_count = np.load(tile_filepath_list[0]).shape[-1]
-    channel_max = np.ones((channel_count, 1))*np.inf*(-1)
-    channel_min = np.ones((channel_count, 1))*np.inf
-    for tile_filepath in tile_filepath_list:
-        tile = np.load(tile_filepath)
-        tile = tile.reshape((-1, channel_count))
-        tile = tile.T
-        channel_max = np.maximum(channel_max, tile.max(axis=1, keepdims=True))
-        channel_min = np.minimum(channel_min, tile.min(axis=1, keepdims=True))
-    channel_bounds = np.concatenate([channel_min, channel_max], axis=1)
+    # paths
+    input_folderpath = '/n/scratch2/hungyiwu/deeptile_data/26531POST/input_data'
+    image_filename = '26531POST.ome.tif'
+    channel_filename = 'channel_info.csv'
+    image_filepath = os.path.join(input_folderpath, image_filename)
+    channel_filepath = os.path.join(input_folderpath, channel_filename)
+    # get channel index
+    with open(channel_filepath, 'r') as ch:
+        channel_name_list = ch.readlines()[0].split(',')
+    biomarker_channels = [
+            i for i, ch in enumerate(channel_name_list) if\
+                    not ch.startswith('Hoechst')\
+                    and ch not in ['A488', 'A555', 'A647']
+                    ]
+    first_hoechst_channel = [
+            i for i, ch in enumerate(channel_name_list) if\
+                    ch.startswith('Hoechst')
+                    ]
+    original_channel_list = first_hoechst_channel+biomarker_channels
+    channel_list = [(t, o) for t, o in enumerate(original_channel_list)]
+    # load WSI (Whole Slide Image)
+    channel_bounds = np.zeros((len(channel_list), 2))
+    with tifffile.TiffFile(image_filepath) as tif:
+        for tile_channel, original_channel in channel_list:
+            wsi = tif.asarray(series=0, key=original_channel)
+            channel_bounds[tile_channel, 0] = wsi.min() # global min per channel
+            channel_bounds[tile_channel, 1] = wsi.max() # global max per channel
     return channel_bounds
 
 def load(

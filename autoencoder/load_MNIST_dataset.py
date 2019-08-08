@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import typing
+
 import tensorflow as tf
 
 def load(batch_size: int) -> typing.Dict[str, typing.Any]:
