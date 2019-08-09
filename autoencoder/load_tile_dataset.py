@@ -5,22 +5,15 @@ import typing
 import tensorflow as tf
 
 def tile_generator(
-        batch_size: int,
         tile_filepath_list: typing.List[str],
         tile_shape: typing.Tuple[int, int, int],
         tile_normalizer: np.ndarray=None,
         ) -> typing.Tuple[np.ndarray]:
-    # X_batch = np.zeros((batch_size,)+tile_shape)
-    X_batch = np.zeros((batch_size,)+tile_shape)
-    for index, tile_filepath in enumerate(tile_filepath_list):
-        remainder = index % batch_size
+    for tile_filepath in tile_filepath_list:
         X = np.load(tile_filepath).astype(np.float32)
-        X_batch[remainder, ...] = X[..., [0]]
-        if remainder == batch_size-1:
-            if tile_normalizer is not None:
-                X_batch -= tile_normalizer[:, 0]
-                X_batch /= tile_normalizer[:, 1]
-            yield (X_batch,)
+        X -= tile_normalizer[:, 0]
+        X /= tile_normalizer[:, 1]
+        yield (X,)
 
 def load(
         batch_size: int, 
@@ -47,38 +40,35 @@ def load(
     train_filepath_array = train_test_array[:train_count]
     test_filepath_array = train_test_array[train_count:]
     # get generators
-    tile_shape = np.load(train_filepath_array[0])[..., [0]].shape
+    tile_shape = np.load(train_filepath_array[0]).shape
+    tile_type = np.float32
     tile_normalizer = np.load(tile_normalizer_filepath)
     train_generator_callable = lambda: tile_generator(
-            batch_size=batch_size,
             tile_filepath_list=train_filepath_array,
             tile_shape=tile_shape,
             tile_normalizer=tile_normalizer,
             )
     test_generator_callable = lambda: tile_generator(
-            batch_size=batch_size,
             tile_filepath_list=test_filepath_array,
             tile_shape=tile_shape,
             tile_normalizer=tile_normalizer,
             )
     # convert to tf.Dataset class
-    output_types = (np.float32,)
-    output_shapes = ((batch_size,)+tile_shape,)
     train_dataset = tf.data.Dataset.from_generator(
             generator=train_generator_callable,
-            output_types=output_types,
-            output_shapes=output_shapes,
-            )
+            output_types=(tile_type,),
+            output_shapes=(tile_shape,),
+            ).batch(batch_size)
     test_dataset = tf.data.Dataset.from_generator(
             generator=test_generator_callable,
-            output_types=output_types,
-            output_shapes=output_shapes,
-            )
+            output_types=(tile_type,),
+            output_shapes=(tile_shape,),
+            ).batch(batch_size)
     data_dict = {
             'train_dataset':train_dataset,
             'test_dataset':test_dataset,
-            'train_batch_count':train_count//batch_size,
-            'test_batch_count':test_count//batch_size,
+            'train_batch_count':np.ceil(train_count/batch_size).astype(int),
+            'test_batch_count':np.ceil(test_count/batch_size).astype(int),
             'data_shape':tile_shape,
             }
     return data_dict
