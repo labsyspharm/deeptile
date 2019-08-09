@@ -60,6 +60,9 @@ def save_tile(
     with tifffile.TiffFile(image_filepath) as tif:
         # wsi = Whole Slide Image
         wsi = tif.asarray(series=0, key=original_channel)
+        # normalization by channel
+        wsi -= wsi.mean()
+        wsi /= wsi.std()
         # loop through cells
         for cell in cell_list:
             tile = wsi[
@@ -132,7 +135,7 @@ if __name__ == '__main__':
     image_filename = '26531POST.ome.tif'
     histoCAT_filename = '26531POST.csv'
     channel_filename = 'channel_info.csv'
-    tile_foldername = 'tiles_cleanChannel'
+    tile_foldername = 'tiles_normalized'
     image_filepath = os.path.join(input_folderpath, image_filename)
     histoCAT_filepath = os.path.join(input_folderpath, histoCAT_filename)
     channel_filepath = os.path.join(input_folderpath, channel_filename)

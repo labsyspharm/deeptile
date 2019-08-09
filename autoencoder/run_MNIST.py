@@ -4,18 +4,8 @@ import argparse
 
 import tqdm
 import tensorflow as tf
-'''
-# set default tensor precision
-tf.keras.backend.set_floatx('float32')
-# turn on memory growth so allocation is as-needed
-gpus = tf.config.experimental.list_physical_devices('GPU')
-if gpus:
-    for gpu in gpus:
-        tf.config.experimental.set_memory_growth(gpu, True)
-    logical_gpus = tf.config.experimental.list_logical_devices('GPU')
-    print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
-'''
-import load_tile_dataset
+
+import load_MNIST_dataset
 import CVAE
 
 if __name__ == '__main__':
@@ -23,30 +13,29 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Get verbose flag.')
     parser.add_argument('--verbose', action='store_true') # default is False
     verbose = parser.parse_args().verbose
-    # load dataset
+    # get dataset
     ts_start = time.time()
-    data_dict = load_tile_dataset.load(
-            batch_size=10,
-            )
+    BATCH_SIZE = 100
+    data_dict= load_MNIST_dataset.load(batch_size=BATCH_SIZE)
     ts_end = time.time()
     print('Prepare dataset took {:.3f} sec.'.format(ts_end-ts_start))
     # setup model and optimizer
     ts_start = time.time()
     cvae_model = CVAE.CVAE(
-            latent_dim=20, 
+            latent_dim=50, 
             input_shape=data_dict['data_shape'],
-            optimizer=tf.keras.optimizers.Adam(learning_rate=1e-6),
+            optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
             )
     ts_end = time.time()
     print('Prepare model took {:.3f} sec.'.format(ts_end-ts_start))
-    # epoch loop
-    total_epoch =30
+    # test run
+    total_epoch = 10
     print('Start epoch loop ({} epochs in total).'.format(total_epoch))
     for epoch in range(1, total_epoch + 1):
         # train loop
         ts_start = time.time()
         train_loss = []
-        for index, (train_x,) in tqdm.tqdm(
+        for index, train_x in tqdm.tqdm(
                 iterable=enumerate(data_dict['train_dataset']), 
                 desc='train', 
                 total=data_dict['train_batch_count'],
@@ -57,9 +46,9 @@ if __name__ == '__main__':
         train_elbo = -np.mean(train_loss)
         # progress report
         test_loss = []
-        for index, (test_x,) in tqdm.tqdm(
+        for index, test_x in tqdm.tqdm(
                 iterable=enumerate(data_dict['test_dataset']), 
-                desc='test',
+                desc='test', 
                 total=data_dict['test_batch_count'],
                 disable=not verbose,
                 ):
@@ -73,4 +62,3 @@ if __name__ == '__main__':
             print('NaN detected, train loop terminated.')
             break
     print('Done.')
-

@@ -1,0 +1,5 @@
+# ignore job error log and output
+*.err
+*.out
+# ignore all folders named __pycache__
+__pycache__
