@@ -33,8 +33,8 @@ def load(batch_size: int) -> typing.Dict[str, typing.Any]:
     data_dict = {
             'train_dataset':train_dataset,
             'test_dataset':test_dataset,
-            'train_batch_count':train_images.shape[0]//batch_size,
-            'test_batch_count':test_images.shape[0]//batch_size,
+            'train_batch_count':np.ceil(train_images.shape[0]/batch_size).astype(int),
+            'test_batch_count':np.ceil(test_images.shape[0]/batch_size).astype(int),
             'data_shape':train_images.shape[1:],
             }
     return data_dict
