@@ -6,7 +6,6 @@ import typing
 import multiprocessing
 
 import tifffile
-import sklearn.preprocessing
 
 # define ROI
 def within_ROI(
@@ -62,10 +61,11 @@ def save_tile(
         # wsi = Whole Slide Image
         wsi = tif.asarray(series=0, key=original_channel)
         # normalization by channel
-        wsi_normalized = sklearn.preprocessing.scale(wsi)
+        wsi -= wsi.mean()
+        wsi /= wsi.std()
         # loop through cells
         for cell in cell_list:
-            tile = wsi_normalized[
+            tile = wsi[
                     cell['Y_position']-tile_width//2:cell['Y_position']+tile_width//2,
                     cell['X_position']-tile_width//2:cell['X_position']+tile_width//2]
             # save to disk
