@@ -118,15 +118,18 @@ class CVAE(tf.keras.Model):
         x_pred = self.decode(z)
         reconstruction_loss = tf.math.reduce_mean(tf.keras.losses.MSE(x, x_pred))
         # K-L Divergence in the latent space
-        def KLD_from_logprob(log_y_true, log_y_pred):
-            y_true = tf.math.exp(log_y_true)
-            return tf.math.reduce_mean(y_true*(log_y_true-log_y_pred))
-        def log_pdf(sample, mu, sigma):
-            return tfp.distributions.MultivariateNormalDiag(
-                    loc=mu, scale_diag=sigma).log_prob(sample)
-        log_p_data = log_pdf(z, mean, tf.math.exp(logvar * .5))
-        log_p_target = log_pdf(z, tf.zeros(shape=mean.shape), tf.ones(logvar.shape))
-        latent_loss = KLD_from_logprob(log_p_target, log_p_data)
+        def KLD(y_true, y_pred):
+            return y_true*(tf.math.log(y_true)-tf.math.log(y_pred))
+        def pdf(sample, mu, sigma):
+            prob = tfp.distributions.MultivariateNormalDiag(
+                    loc=mu, scale_diag=sigma).prob(sample)
+            # for numerical stability
+            prob = prob.numpy()
+            prob[prob < np.finfo(np.float32).eps] = np.finfo(np.float32).eps
+            return prob
+        p_data = pdf(z, mean, tf.math.exp(logvar * .5))
+        p_target = pdf(z, tf.zeros(shape=mean.shape), tf.ones(logvar.shape))
+        latent_loss = tf.math.reduce_mean(KLD(log_p_target, log_p_data))
         return reconstruction_loss+latent_loss
 
     def compute_apply_gradients(self, x):
