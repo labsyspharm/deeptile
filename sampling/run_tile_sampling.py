@@ -23,91 +23,100 @@ import deeptile_dataset
 import deeptile_sampling
 
 if __name__ == '__main__':
-    # define tile size
+    # define tile shape
     displacement_cells = 10 # width/2, in unit of cells
     cell_size = 10 # in unit of micro-meter
     pixel_size = 0.65 # in unit of micro-meter
     tile_width = 2*int(displacement_cells * cell_size / pixel_size) # in unit of pixel
+    tile_shape = (tile_width, tile_width)
     # paths
-    image_filepath = '/n/scratch2/hungyiwu/deeptile_data/26531POST/input_data/26531POST.ome.tif'
-    channel_info_filepath = '/n/scratch2/hungyiwu/deeptile_data/26531POST/input_data/channel_info.csv'
-    sample_folderpath = '/n/scratch2/hungyiwu/deeptile_data/26531POST/output/tile_train_sample'
-    grid_folderpath = '/n/scratch2/hungyiwu/deeptile_data/26531POST/output/tile_survey_grid'
+    image_filepath = '/n/scratch2/hungyiwu/deeptile_data/26531POST/'\
+            'input_data/26531POST.ome.tif'
+    channel_info_filepath = '/n/scratch2/hungyiwu/deeptile_data/26531POST/'\
+            'input_data/channel_info.csv'
+    workspace_folderpath = '/n/scratch2/hungyiwu/deeptile_data/26531POST/'\
+            'output/workspace'
     record_filepath = './training_history.csv'
     # parse arguments
-    parser = argparse.ArgumentParser(description='Get verbose flag and CPU count.')
+    parser = argparse.ArgumentParser(description='Get verbosity.')
     parser.add_argument('--verbose', action='store_true', # default is False
             help='Turn on tqdm progress bar.')
-    parser.add_argument('-n', type=int, default=1,
-            help='CPU count for parallel data processing (default: 1).')
     args = parser.parse_args()
     verbose = args.verbose
-    cpu_count = args.n
-    # setup model
-    extractor = deeptile_dataset.tile_extractor(
+    # data
+    print('Initializing data loader...')
+    ts_start = time.time()
+    loader = deeptile_dataset.tile_loader(
+            workspace_folderpath=workspace_folderpath,
+            warm_start=True,
             image_filepath=image_filepath,
-            channel_info_filepath=channel_info_filepath,
-            tile_width=tile_width,
-            cpu_count=cpu_count,
+            channel_filepath=channel_info_filepath,
             )
-    sample_loader = deeptile_dataset.tile_loader(
-            tile_folderpath=sample_folderpath,
-            data_shape=extractor.data_shape,
-            )
-    grid_loader = deeptile_dataset.tile_loader(
-            tile_folderpath=grid_folderpath,
-            data_shape=extractor.data_shape,
-            )
+    ts_end = time.time()
+    print('Done in {:.3f} min.'.format((ts_end-ts_start)/60))
+    # model
     cvae_model = deeptile_model.CVAE(
             latent_dim=20, 
-            input_shape=extractor.data_shape,
+            input_shape=tile_shape+(loader.count_channel,),
             optimizer=tf.keras.optimizers.Adam(learning_rate=1e-6),
             )
     # training parameters
     batch_size = 10
-    total_cycle = 5
     grid_count = 100
     # get grid dataset
-    x_linspace = np.linspace(start=0, stop=extractor.image_shape[0], num=grid_count).astype(int)
-    y_linspace = np.linspace(start=0, stop=extractor.image_shape[1], num=grid_count).astype(int)
+    x_linspace = np.linspace(start=0, stop=loader.image_shape[0], num=grid_count).astype(int)
+    y_linspace = np.linspace(start=0, stop=loader.image_shape[1], num=grid_count).astype(int)
     x_mesh, y_mesh = np.meshgrid(x_linspace, y_linspace)
-    survey_grid = np.vstack([x_mesh.flatten(), y_mesh.flatten()]).T
-    extractor.extract(
-            sample_X=survey_grid,
-            output_folderpath=grid_folderpath,
+    survey_grid = [(x,y) for x, y in zip(x_mesh.flatten(), y_mesh.flatten())]
+    grid_dataset = loader.get_dataset(
+            tile_shape=tile_shape,
+            center_list=survey_grid,
+            batch_size=batch_size,
             )
-    grid_dataset = grid_loader.get_dataset(batch_size=batch_size)
     # setup training, evaluation, sampling loop
-    train_sample = survey_grid.copy()
-    record = []
-    for cycle in range(total_cycle):
+    loss_list = []
+    for train_x in tqdm.tqdm(grid_dataset, disable=not verbose):
+        loss = cvae_model.compute_apply_gradients(train_x)
+        loss_list.append(loss.numpy())
+    print(np.mean(loss_list))
+    print('Done.')
+
+'''
         ts_start = time.time()
-        # phase 1: train on sample
-        extractor.extract(
-                sample_X=train_sample,
-                output_folderpath=tile_folderpath,
-                )
-        sample_dataset = sample_loader.get_dataset(batch_size=batch_size)
-        for batch_tile in sample_dataset:
+        # phase 1: extract training sample
+        # phase 2: train on sample
+        for batch_tile in tqdm.tqdm(
+                iterable=sample_dataset,
+                desc='train',
+                total=np.ceil(extractor.data_count/batch_size),
+                disable=not verbose):
             cvae_model.compute_apply_gradients(batch_tile)
-        # phase 2: survey on grid
-        loss_list = []
-        for batch_tile in grid_dataset:
+        # phase 3: survey on grid
+        for batch_tile in tqdm.tqdm(
+                iterable=grid_dataset,
+                desc='survey',
+                total=np.ceil(extractor.data_count/batch_size),
+                disable=not verbose):
             loss = cvae_model.compute_loss(batch_tile)
             loss_list.append(loss.numpy())
         prob = np.array(loss_list)
         prob /= prob.sum() # note that regression loss >= 0
-        # phase 3: generate next training sample
+        # phase 4: generate next training sample
         train_sample = deeptile_sampling.multivariate_inverse_transform_sampling(
             data_X=survey_grid,
             data_prob=prob,
             sample_size=survey_grid.shape[0],
             )
         ts_end = time.time()
+        # report progress
+        mean_loss = np.mean(loss_list)
+        runtime = ts_end-ts_start
+        print('cycle {} done, mean loss {:.3f}, runtime {:.3f} sec.',format(
+            cycle, mean_loss, runtime))
         # record history
-        record.append([cycle, np.mean(loss_list), ts_end-ts_start])
+        record.append([cycle, mean_loss, runtime])
     # save record to disk
     df = pd.DataFrame.from_records(record, columns=['cycle', 'avg. loss/tile', 'runtime (sec)'])
     df.to_csv(record_filepath)
     print('Done.')
-
+'''

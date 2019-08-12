@@ -1,185 +1,144 @@
 import os
 import numpy as np
-import csv
+import pandas as pd
 import shutil
 import typing
-import multiprocessing
 
+import h5py
 import tifffile
 import tensorflow as tf
-
-class tile_extractor(object):
-    def __init__(
-            self,
-            image_filepath: str,
-            channel_info_filepath: str,
-            tile_width: int, # square tile for now
-            cpu_count: int,
-        ) -> None:
-        super().__init__()
-        # populate attributes
-        self.tif = tifffile.TiffFile(image_filepath)
-        self.image_shape = self.tif.asarray(series=0, key=0).T.shape
-        self.half_tile_width = tile_width//2
-        self.worker_pool = multiprocessing.Pool(processes=cpu_count)
-        # get channel index
-        with open(channel_info_filepath, 'r') as ch:
-            channel_name_list = ch.readlines()[0].split(',')
-        self.original_channel_list = []
-        first_hoechst = False
-        for original_channel, channel_name in enumerate(channel_name_list):
-            if not first_hoechst and channel_name.startswith('Hoechst'):
-                self.original_channel_list.append(original_channel)
-                first_hoechst = True
-            elif not channel_name.startswith('Hoechst') and channel_name not in ['A488', 'A555', 'A647']:
-                self.original_channel_list.append(original_channel)
-        # data shape for initializing model
-        self.data_shape = (self.half_tile_width*2, self.half_tile_width*2, len(self.original_channel_list))
-        return
-
-    def within_image(self, pixel_coordinate: typing.Tuple[int, int]) -> bool:
-        x_pos, y_pos = pixel_coordinate
-        criteria = [
-                x_pos-self.half_width >= 0,
-                x_pos+self.half_width < self.image_shape[0],
-                y_pos-self.half_width >= 0,
-                y_pos+self.half_width < self.image_shape[1],
-                ]
-        return all(criteria)
-
-    def slice_job(
-            self,
-            sample_X: np.ndarray,
-            output_folderpath: str,
-            ) -> typing.Dict[str, typing.Any]:
-        for tile_channel, original_channel in enumerate(self.original_channel_list):
-            yield {'tile_channel':tile_channel,
-                    'original_channel':original_channel,
-                    'sample_X':sample_X,
-                    'output_folderpath':output_folderpath,
-                    }
-
-    def slice_process(
-            self,
-            job: typing.Dict[str, typing.Any],
-            ) -> None:
-        # create sub-directory
-        channel_folderpath = os.path.join(
-                job['output_folderpath'], 
-                'channel_{}'.format(job['tile_channel']))
-        if os.path.isdir(channel_folderpath):
-            shutil.rmtree(channel_folderpath)
-        os.mkdir(channel_folderpath)
-        # wsi = Whole Slide Image
-        wsi = self.tif.asarray(series=0, key=job['original_channel']).T
-        # normalization by channel
-        wsi -= wsi.mean()
-        wsi /= wsi.std()
-        # loop through cells
-        for index in range(job['sample_X'].shape[0]):
-            x_pos = job['sample_X'][index, 0]
-            y_pos = job['sample_X'][index, 1]
-                if self.within_image((x_pos, y_pos))
-                    tile = wsi[
-                            x_pos-self.half_width:x_pos+self.half_width,
-                            y_pos-self.half_width:y_pos+self.half_width]
-                    # save to disk
-                    tile_filepath = os.path.join(channel_folderpath, 'tile_{}.npy'.format(index))
-                    np.save(tile_filepath, tile)
-        return
-
-    def assemble_job(
-            self,
-            output_folderpath: str,
-            tile_count: int,
-            ) -> typing.Dict[str, typing.Any]:
-        for tile_index in range(tile_count):
-            yield {
-                    'output_folderpath':output_folderpath,
-                    'tile_index':tile_index,
-                    }
-
-    def assemble_process(
-            self,
-            job: typing.Dict[str, typing.Any],
-            ) -> None:
-        # loop over channels
-        tile_list = []
-        for tile_channel in range(len(self.original_channel_list)):
-            tile_path = os.path.join(
-                    job['output_folderpath'],
-                    'channel_{}'.format(tile_channel),
-                    'tile_{}.npy'.format(job['tile_index']),
-                    )
-            tile = np.load(tile_path)
-            tile_list.append(tile)
-        # save assembled cell to disk
-        tile_stack = np.stack(tile_list, axis=-1)
-        tile_stack_filepath = os.path.join(
-                job['output_folderpath'], 
-                'tile_{}.npy'.format(job['tile_index']))
-        np.save(tile_stack_filepath, tile_stack)
-        return
-
-    def extract(
-            self,
-            sample_X: np.ndarray,
-            output_folderpath: str,
-            ) -> None:
-        # create output folder
-        if os.path.isdir(output_folderpath):
-            shutil.rmtree(output_folderpath)
-        os.mkdir(output_folderpath)
-        # validate samples
-        sample_X_valid = []
-        for index in range(sample_X.shape[0]):
-            x_pos = sample_X[index, 0]
-            y_pos = sample_X[index, 1]
-            if self.within_image((x_pos, y_pos)):
-                sample_X_valid.append(index)
-        sample_X_valid = sample_X[np.array(sample_X_valid), :]
-        # slicing loop
-        for _ in self.worker_pool.imap_unordered(
-                func=self.slice_process,
-                iterable=self.slice_job(
-                    sample_X=sample_X_valid,
-                    output_folderpath=output_folderpath,
-                    ),
-                ):
-            pass
-        # assembling loop
-        for _ in self.worker_pool.imap_unordered(
-                func=self.assemble_process,
-                iterable=self.assemble_job(
-                    output_folderpath=otuput_folderpath,
-                    tile_count=sample_X_valid.shape[0],
-                    ),
-                ):
-            pass
-        return
 
 class tile_loader(object):
     def __init__(
             self,
-            tile_folderpath: str,
-            data_shape: typing.Tuple[int, int, int],
+            workspace_folderpath: str,
+            warm_start: bool=False,
+            channel_filepath: str=None,
+            image_filepath: str=None,
             ) -> None:
-        self.tile_folderpath = tile_folderpath
-        self.data_shape = data_shape
+        super().__init__()
+        self.workspace_folderpath = workspace_folderpath
+        if warm_start:
+            # load channel
+            channel_filepath = os.path.join(self.workspace_folderpath, 'channel.csv')
+            self.channel = pd.read_csv(channel_filepath, index_col=False)
+            # load image
+            image_filepath = os.path.join(self.workspace_folderpath, 'image.hdf5')
+            self.image = h5py.File(image_filepath, 'r')
+        else:
+            if os.path.isdir(self.workspace_folderpath):
+                shutil.rmtree(self.workspace_folderpath)
+            os.makedirs(self.workspace_folderpath)
+            # process channel information
+            self.__parse_channel(channel_filepath)
+            # convert image from tiff to hdf5 format for better disk IO performance
+            self.__parse_image(image_filepath)
+        # useful attribute
+        self.count_channel = len(list(self.image.keys()))
+        self.image_shape = self.image['channel_0'].shape
         return
 
-    def generator(self) -> np.ndarray:
-        tile_filepath_list = []
-        for name in os.listdir(self.tile_folderpath):
-            if name.endswith('.npy'):
-                tile_filepath_list.append(os.path.join(self.tile_folderpath, name))
-        for tile_filepath in tile_filepath_list:
-            yield np.load(tile_filepath).astype(np.float32)
+    def __parse_channel(self, path: str) -> None:
+        with open(path, 'r') as ch:
+            channel_name_list = ch.readlines()[0].split(',')
+        record = []
+        first_hoechst = False
+        tile_channel_index = 0
+        DNA_name = 'Hoechst'
+        background_names = ['A488', 'A555', 'A647']
+        for original_channel, channel_name in enumerate(channel_name_list):
+            if not first_hoechst and DNA_name in channel_name:
+                record.append([original_channel, channel_name, tile_channel_index])
+                first_hoechst = True
+                tile_channel_index += 1
+            elif DNA_name not in channel_name\
+                    and not any([bkgd in channel_name for bkgd in background_names]):
+                record.append([original_channel, channel_name, tile_channel_index])
+                tile_channel_index += 1
+            else:
+                record.append([original_channel, channel_name, -1])
+        self.channel = pd.DataFrame.from_records(record,
+                columns=['original_channel', 'channel_name', 'tile_channel'])
+        df_path = os.path.join(self.workspace_folderpath, 'channel.csv')
+        self.channel.to_csv(df_path, index=False)
+        return
 
-    def get_dataset(self, batch_size: int) -> tf.Dataset:
+    def __parse_image(self, path: str) -> None:
+        hdf5_path = os.path.join(self.workspace_folderpath, 'image.hdf5')
+        self.image = h5py.File(hdf5_path, 'a')
+        original_channel_list = self.channel.loc[self.channel['tile_channel']>=0]\
+                .sort_values('tile_channel', ascending=True)\
+                ['original_channel'].tolist()
+        with tifffile.TiffFile(path) as tif:
+            for tile_channel, original_channel in enumerate(original_channel_list):
+                wsi = tif.asarray(series=0, key=original_channel)
+                wsi = wsi.T # convert from image coordinate to numpy array coordinate
+                wsi = wsi.astype(np.float32) # single precision
+                wsi -= wsi.mean() # normalization
+                wsi /= wsi.std() # same as above
+                self.image.create_dataset('channel_{}'.format(tile_channel), data=wsi)
+        return
+
+    def __within_image(
+            self,
+            tile_shape: typing.Tuple[int, int],
+            center: typing.Tuple[int, int],
+            ) -> bool:
+        x_pos, y_pos = center
+        x_half_tile_width = tile_shape[0]//2
+        y_half_tile_width = tile_shape[1]//2
+        image_shape = self.image['channel_0'].shape
+        criteria = [
+                x_pos-x_half_tile_width >= 0,
+                x_pos+x_half_tile_width < image_shape[0],
+                y_pos-y_half_tile_width >= 0,
+                y_pos+y_half_tile_width < image_shape[1],
+                ]
+        return all(criteria)
+
+    def get_tile(self, 
+            tile_shape: typing.Tuple[int, int],
+            center: typing.Tuple[int, int],
+            validate: bool=True,
+            ) -> np.ndarray:
+        if validate and not self.__within_image(tile_shape=tile_shape, center=center):
+            return None
+        x, y = center
+        x_half_width = tile_shape[0]//2
+        y_half_width = tile_shape[1]//2
+        tile = np.zeros(tile_shape+(self.count_channel,))
+        for tile_channel in range(self.count_channel):
+            tile_channel_name = 'channel_{}'.format(tile_channel)
+            tile[..., tile_channel] = self.image[tile_channel_name][
+                    x-x_half_width:x+x_half_width,
+                    y-y_half_width:y+y_half_width]
+        return tile
+
+    def generate_tiles(self,
+            tile_shape: typing.Tuple[int, int],
+            center_list: typing.List[typing.Tuple[int, int]],
+            ) -> np.ndarray:
+        valid_center_list = [c for c in center_list\
+                if self.__within_image(tile_shape=tile_shape, center=c)]
+        for c in valid_center_list:
+            yield self.get_tile(
+                    tile_shape=tile_shape,
+                    center=c,
+                    validate=False,
+                    )
+
+    def get_dataset(
+            self,
+            tile_shape: typing.Tuple[int, int],
+            center_list: typing.List[typing.Tuple[int, int]],
+            batch_size: int,
+            ) -> tf.data.Dataset:
         return tf.data.Dataset.from_generator(
-                generator=self.generator,
+                generator=lambda: self.generate_tiles(
+                    tile_shape=tile_shape,
+                    center_list=center_list,
+                    ),
                 output_types=np.float32,
-                output_shapes=self.data_shape,
+                output_shapes=tile_shape+(self.count_channel,),
                 ).batch(batch_size)
 

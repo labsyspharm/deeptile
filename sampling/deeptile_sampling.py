@@ -4,7 +4,7 @@ import typing
 import scipy.interpolate
 
 def univariate_inverse_transform_sampling(
-        CDF: typing.Callable[[np.ndarray], np.ndarray]
+        CDF: typing.Callable[[np.ndarray], np.ndarray],
         support_range: typing.Tuple[float, float],
         grid_count: int,
         sample_size: int,
@@ -74,7 +74,7 @@ def multivariate_inverse_transform_sampling(
         data_X: np.ndarray, 
         data_prob: np.ndarray,
         sample_size: int,
-        ) -> np.ndarray:
+        ) -> typing.List[typing.Tuple[int, int]]:
     '''
     Inverse transform sampling:
     1. data -> PDF -> CDF -> inversed CDF
@@ -120,5 +120,11 @@ def multivariate_inverse_transform_sampling(
                     sample_size=1,
                     )
         given_axis_list.append(axis)
-    return sample_X
+    # cast to list of tuple of integers
+    sample_X_list = []
+    for index in range(sample_X.shape[0]):
+        x_pos = int(sample_X[index, 0])
+        y_pos = int(sample_X[index, 1])
+        sample_X_list.append((x_pos, y_pos))
+    return sample_X_list
 
