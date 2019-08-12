@@ -129,7 +129,7 @@ class CVAE(tf.keras.Model):
             return prob
         p_data = pdf(z, mean, tf.math.exp(logvar * .5))
         p_target = pdf(z, tf.zeros(shape=mean.shape), tf.ones(logvar.shape))
-        latent_loss = tf.math.reduce_mean(KLD(log_p_target, log_p_data))
+        latent_loss = tf.math.reduce_mean(KLD(p_target, p_data))
         return reconstruction_loss+latent_loss
 
     def compute_apply_gradients(self, x):

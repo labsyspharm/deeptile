@@ -28,7 +28,7 @@ if __name__ == '__main__':
     ts_start = time.time()
     data_dict = load_tile_dataset.load(
             batch_size=10,
-            train_fraction=0.084, # ~12k, eta 2 days
+            train_fraction=0.042, # ~6k, eta 1 day
             test_fraction=0.0068, # ~1k
             )
     ts_end = time.time()
@@ -72,8 +72,8 @@ if __name__ == '__main__':
         ts_end = time.time()
         print('Epoch: {}/{} done, Train ELBO: {:.3f} Test ELBO: {:.3f}, Runtime: {:.3f} sec.'\
                 .format(epoch, total_epoch, train_elbo, test_elbo, ts_end-ts_start))
-        if np.isnan(train_elbo) or np.isnan(test_elbo):
-            print('NaN detected, train loop terminated.')
+        if not np.isfinite(train_elbo) or not np.isfinite(test_elbo):
+            print('None finite ELBO detected, train loop terminated.')
             break
     # save embedding for later analysis
     output_folderpath = '/n/scratch2/hungyiwu/deeptile_data/26531POST/output/'
