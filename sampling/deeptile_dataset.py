@@ -33,10 +33,11 @@ class tile_loader(object):
             self.__parse_channel(channel_filepath)
             # convert image from tiff to hdf5 format for better disk IO performance
             self.__parse_image(image_filepath)
-        # useful attribute
-        self.count_channel = len(list(self.image.keys()))
-        self.image_shape = self.image['channel_0'].shape
         return
+
+    @property
+    def count_channel(self):
+        return (self.channel['tile_channel'] >= 0).sum()
 
     def __parse_channel(self, path: str) -> None:
         with open(path, 'r') as ch:
@@ -64,19 +65,39 @@ class tile_loader(object):
         return
 
     def __parse_image(self, path: str) -> None:
-        hdf5_path = os.path.join(self.workspace_folderpath, 'image.hdf5')
-        self.image = h5py.File(hdf5_path, 'a')
+        # for consistent preprocessing
+        def preprocessing(a: np.ndarray) -> np.ndarray:
+            a = a.T # convert from image coordinate to numpy array coordinate
+            a = a.astype(np.float32) # single precision
+            a -= a.mean() # normalization
+            a /= a.std() # same as above
+            return a
+        # get channel list
         original_channel_list = self.channel.loc[self.channel['tile_channel']>=0]\
                 .sort_values('tile_channel', ascending=True)\
                 ['original_channel'].tolist()
         with tifffile.TiffFile(path) as tif:
-            for tile_channel, original_channel in enumerate(original_channel_list):
+            # initialization
+            tile_channel = 0
+            original_channel = original_channel_list[tile_channel]
+            wsi = tif.asarray(series=0, key=original_channel)
+            wsi = preprocessing(wsi)
+            image_shape = wsi.shape+(len(original_channel_list),)
+            hdf5_path = os.path.join(self.workspace_folderpath, 'image.hdf5')
+            self.image = h5py.File(hdf5_path, 'a')
+            print('hi')
+            print(image_shape)
+            self.image.create_dataset('image', shape=image_shape, dtype=np.float32, chunks=True)
+            # fill first channel
+            self.image['image'][..., tile_channel] = wsi
+            tile_channel += 1
+            # fill rest of the channels
+            for original_channel in original_channel_list[1:]:
+                print('lo')
                 wsi = tif.asarray(series=0, key=original_channel)
-                wsi = wsi.T # convert from image coordinate to numpy array coordinate
-                wsi = wsi.astype(np.float32) # single precision
-                wsi -= wsi.mean() # normalization
-                wsi /= wsi.std() # same as above
-                self.image.create_dataset('channel_{}'.format(tile_channel), data=wsi)
+                wsi = preprocessing(wsi)
+                self.image['image'][..., tile_channel] = wsi
+                tile_channel += 1
         return
 
     def __within_image(
@@ -85,9 +106,9 @@ class tile_loader(object):
             center: typing.Tuple[int, int],
             ) -> bool:
         x_pos, y_pos = center
-        x_half_tile_width = tile_shape[0]//2
-        y_half_tile_width = tile_shape[1]//2
-        image_shape = self.image['channel_0'].shape
+        x_half_tile_width = int(tile_shape[0]/2)
+        y_half_tile_width = int(tile_shape[1]/2)
+        image_shape = self.image['image'].shape
         criteria = [
                 x_pos-x_half_tile_width >= 0,
                 x_pos+x_half_tile_width < image_shape[0],
@@ -104,15 +125,11 @@ class tile_loader(object):
         if validate and not self.__within_image(tile_shape=tile_shape, center=center):
             return None
         x, y = center
-        x_half_width = tile_shape[0]//2
-        y_half_width = tile_shape[1]//2
-        tile = np.zeros(tile_shape+(self.count_channel,))
-        for tile_channel in range(self.count_channel):
-            tile_channel_name = 'channel_{}'.format(tile_channel)
-            tile[..., tile_channel] = self.image[tile_channel_name][
+        x_half_width = int(tile_shape[0]/2)
+        y_half_width = int(tile_shape[1]/2)
+        return self.image['image'][
                     x-x_half_width:x+x_half_width,
-                    y-y_half_width:y+y_half_width]
-        return tile
+                    y-y_half_width:y+y_half_width, :]
 
     def generate_tiles(self,
             tile_shape: typing.Tuple[int, int],

@@ -64,8 +64,14 @@ if __name__ == '__main__':
     batch_size = 10
     grid_count = 100
     # get grid dataset
-    x_linspace = np.linspace(start=0, stop=loader.image_shape[0], num=grid_count).astype(int)
-    y_linspace = np.linspace(start=0, stop=loader.image_shape[1], num=grid_count).astype(int)
+    x_linspace = np.linspace(
+            start=0, 
+            stop=loader.image['image'].shape[0], 
+            num=grid_count).astype(int)
+    y_linspace = np.linspace(
+            start=0, 
+            stop=loader.image['image'].shape[1], 
+            num=grid_count).astype(int)
     x_mesh, y_mesh = np.meshgrid(x_linspace, y_linspace)
     survey_grid = [(x,y) for x, y in zip(x_mesh.flatten(), y_mesh.flatten())]
     grid_dataset = loader.get_dataset(
@@ -76,8 +82,12 @@ if __name__ == '__main__':
     # setup training, evaluation, sampling loop
     loss_list = []
     for train_x in tqdm.tqdm(grid_dataset, disable=not verbose):
+        ts_start = time.time()
         loss = cvae_model.compute_apply_gradients(train_x)
         loss_list.append(loss.numpy())
+        ts_end = time.time()
+        print('batch runtime {:.3f} sec.'.format(ts_end-ts_start))
+        break
     print(np.mean(loss_list))
     print('Done.')
 
