@@ -116,7 +116,10 @@ class CVAE(tf.keras.Model):
         mean, logvar = self.encode(x)
         z = self.reparameterize(mean, logvar)
         x_pred = self.decode(z)
-        reconstruction_loss = tf.math.reduce_mean(tf.keras.losses.MSE(x, x_pred))
+        reconstruction_loss = tf.math.reduce_sum(
+                input_tensor=tf.keras.losses.MSE(x, x_pred),
+                axis=[1, 2],
+                )
         # K-L Divergence in the latent space
         def KLD(y_true, y_pred):
             return y_true*(tf.math.log(y_true)-tf.math.log(y_pred))
@@ -129,13 +132,14 @@ class CVAE(tf.keras.Model):
             return prob
         p_data = pdf(z, mean, tf.math.exp(logvar * .5))
         p_target = pdf(z, tf.zeros(shape=mean.shape), tf.ones(logvar.shape))
-        latent_loss = tf.math.reduce_mean(KLD(p_target, p_data))
+        latent_loss = KLD(p_target, p_data)
         return reconstruction_loss+latent_loss
 
     def compute_apply_gradients(self, x):
         with tf.GradientTape() as tape:
             loss = self.compute_loss(x)
-        gradients = tape.gradient(loss, self.trainable_variables)
+            avg_loss = tf.math.reduce_mean(loss)
+        gradients = tape.gradient(avg_loss, self.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
         return loss
 

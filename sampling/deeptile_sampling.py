@@ -14,6 +14,8 @@ def univariate_inverse_transform_sampling(
     grid_cum_prob = CDF(grid)
     # uniform sample in range [0,1)
     uniform_sample = np.random.rand(sample_size)
+    uniform_sample *= (grid_cum_prob.max()-grid_cum_prob.min())
+    uniform_sample += grid_cum_prob.min()
     # use scipy.interpolate.interp1d to generate the inversed CDF function
     CDF_inversed = scipy.interpolate.interp1d(grid_cum_prob, grid)
     # convert uniform sample to samples on support domain by the inversed CDF
@@ -43,29 +45,33 @@ def marginal_conditional_CDF(
         sort_key = np.argsort(data_X[:, axis])
         marginal_prob = marginal_prob[sort_key]
         # cumulative sum
-        marginal_prob = np.cumsum(marginal_prob, axis=axis)
+        marginal_prob = np.cumsum(marginal_prob)
         # resume original ordering
         marginal_prob = marginal_prob[sort_key]
     # construct conditional CDF
     def CDF(xi: np.ndarray, given_X: np.ndarray=None):
+        '''
+        given_X is np.ndarray with shape (len(given_axis_list),)
+        xi is np.ndarray with shape (-1,)
+        '''
         # construct input
         if given_axis:
-            x_input = np.zeros((given_X.shape[0], given_X.shape[1]+1))
+            x_input = np.zeros((xi.shape[0], given_X.shape[0]+1))
             given_X_axis_head = 0
             for xi_axis, original_axis in enumerate(axis_map):
                 if original_axis == target_axis:
                     x_input[:, xi_axis] = xi
                 else:
-                    x_input[:, xi_axis] = given_X[:, given_X_axis_head]
+                    x_input[:, xi_axis] = given_X[given_X_axis_head]
                     given_X_axis_head += 1
         else:
             x_input = xi
         # multivariate interpolation from unstructured data
         prob = scipy.interpolate.griddata(
-                points=data_X,
+                points=data_X[:, axis_map],
                 values=marginal_prob,
                 xi=x_input,
-                method='linear',
+                method='nearest',
                 )
         return prob
     return CDF
@@ -74,7 +80,9 @@ def multivariate_inverse_transform_sampling(
         data_X: np.ndarray, 
         data_prob: np.ndarray,
         sample_size: int,
-        ) -> typing.List[typing.Tuple[int, int]]:
+        support_range: typing.List[typing.Tuple[float, float]],
+        grid_count: int,
+        ) -> typing.List[typing.List[int]]:
     '''
     Inverse transform sampling:
     1. data -> PDF -> CDF -> inversed CDF
@@ -109,22 +117,25 @@ def multivariate_inverse_transform_sampling(
         mcCDF = marginal_conditional_CDF(
                 data_X=data_X,
                 data_prob=data_prob,
-                targer_axis=axis,
+                target_axis=axis,
                 given_axis=given_axis_list,
                 )
         for sample_index in range(sample_size):
-            given_X = sample_X[sample_index, np.array(given_axis_list)]
+            given_X = sample_X[sample_index, given_axis_list]
             sample_X[sample_index, axis] = univariate_inverse_transform_sampling(
-                    data_X=data_X[:, axis],
-                    data_prob=lambda i: mcCDF(xi=i, given_X=given_X),
+                    CDF=lambda xi: mcCDF(xi, given_X),
+                    support_range=support_range[axis],
+                    grid_count=grid_count,
                     sample_size=1,
                     )
         given_axis_list.append(axis)
+    return sample_X
     # cast to list of tuple of integers
     sample_X_list = []
     for index in range(sample_X.shape[0]):
-        x_pos = int(sample_X[index, 0])
-        y_pos = int(sample_X[index, 1])
-        sample_X_list.append((x_pos, y_pos))
+        point = []
+        for d in range(sample_X.shape[1]):
+            point.append(int(sample_X[index, d]))
+        sample_X_list.append(point)
     return sample_X_list
 
