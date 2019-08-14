@@ -12,6 +12,12 @@ def univariate_inverse_transform_sampling(
     # evaluate CDF at grid
     grid = np.linspace(start=support_range[0], stop=support_range[1], num=grid_count)
     grid_cum_prob = CDF(grid)
+    # in case of NaN
+    keep_index = np.isfinite(grid_cum_prob)
+    if keep_index.sum() == 0:
+        return np.full(sample_size, float('nan'))
+    grid = grid[keep_index]
+    grid_cum_prob = grid_cum_prob[keep_index]
     # uniform sample in range [0,1)
     uniform_sample = np.random.rand(sample_size)
     uniform_sample *= (grid_cum_prob.max()-grid_cum_prob.min())
@@ -122,20 +128,28 @@ def multivariate_inverse_transform_sampling(
                 )
         for sample_index in range(sample_size):
             given_X = sample_X[sample_index, given_axis_list]
-            sample_X[sample_index, axis] = univariate_inverse_transform_sampling(
-                    CDF=lambda xi: mcCDF(xi, given_X),
-                    support_range=support_range[axis],
-                    grid_count=grid_count,
-                    sample_size=1,
-                    )
+            try:
+                '''
+                scipy.interpolate.NearestNDInterpolator uses cKDTree by default
+                I manually switched to KDTree (Python implementation) and got the same error
+                After digging into KDTree code I found there's a parameter called distance_upper_bound
+                This parameter defaults to np.inf but somehow in the algorithm design it decreases
+                Therefore there can be cases of "missing neighbor" even with "nearest neighbor algorithm"
+                In this case the returned neighbor index is N when argument xi has shape (N, D)
+                This is the reason why I saw this error
+
+                    IndexError: index N is out of bounds for axis 0 with size N
+
+                sometimes.
+                '''
+                sample_X[sample_index, axis] = univariate_inverse_transform_sampling(
+                        CDF=lambda xi: mcCDF(xi, given_X),
+                        support_range=support_range[axis],
+                        grid_count=grid_count,
+                        sample_size=1,
+                        )
+            except:
+                sample_X[sample_index, axis] = float('nan')
         given_axis_list.append(axis)
     return sample_X
-    # cast to list of tuple of integers
-    sample_X_list = []
-    for index in range(sample_X.shape[0]):
-        point = []
-        for d in range(sample_X.shape[1]):
-            point.append(int(sample_X[index, d]))
-        sample_X_list.append(point)
-    return sample_X_list
 

@@ -40,17 +40,16 @@ if __name__ == '__main__':
             'output/workspace'
     record_filepath = './training_history.csv'
     # target ROI obtained from PathViewer on OMERO server
-    # note: input is based on image coordinate
     ROI = {
         'image_x':23969,
         'image_y':9398,
-        'image_width':5932,
-        'image_height':5170,
+        'image_width':5932, # delta-y
+        'image_height':5170, # delta-x
     }
-    ROI_x_low = int(ROI['image_x']-ROI['image_width']/2+tile_shape[0]/2)
-    ROI_x_high = int(ROI['image_x']+ROI['image_width']/2-tile_shape[0]/2)
-    ROI_y_low = int(ROI['image_y']-ROI['image_height']/2+tile_shape[1]/2)
-    ROI_y_high = int(ROI['image_y']+ROI['image_height']/2-tile_shape[1]/2)
+    ROI_x_low = int(ROI['image_x']-ROI['image_height']/2)
+    ROI_x_high = int(ROI['image_x']+ROI['image_height']/2)
+    ROI_y_low = int(ROI['image_y']-ROI['image_width']/2)
+    ROI_y_high = int(ROI['image_y']+ROI['image_width']/2)
     ROI_support_range = [(ROI_x_low, ROI_x_high), (ROI_y_low, ROI_y_high)]
     # parse arguments
     parser = argparse.ArgumentParser(description='Get verbosity.')
@@ -69,7 +68,7 @@ if __name__ == '__main__':
     cvae_model = deeptile_model.CVAE(
             latent_dim=20, 
             input_shape=tile_shape+(loader.count_channel,),
-            optimizer=tf.keras.optimizers.Adam(learning_rate=1e-6),
+            optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
             )
     # training parameters
     batch_size = 10
@@ -85,12 +84,13 @@ if __name__ == '__main__':
             num=int(ROI['image_height']/tile_shape[1]*2),
             ).astype(int)
     x_mesh, y_mesh = np.meshgrid(x_linspace, y_linspace)
-    survey_grid = [(x,y) for x, y in zip(x_mesh.flatten(), y_mesh.flatten())]
-    # keep only those within image
-    survey_grid = loader.within_image(
-            tile_shape=tile_shape,
-            center_list=survey_grid,
-            )
+    survey_grid = []
+    for x, y in zip(x_mesh.flatten(), y_mesh.flatten()):
+        if deeptile_dataset.within_range(
+                point=(x,y),
+                tile_shape=tile_shape, 
+                support_range=ROI_support_range):
+            survey_grid.append((x,y))
     survey_grid_array = np.zeros((len(survey_grid), 2))
     for index, (x,y) in enumerate(survey_grid):
         survey_grid_array[index, 0] = x
@@ -105,12 +105,11 @@ if __name__ == '__main__':
     grid_batch_count = np.ceil(len(survey_grid)/batch_size).astype(int)
     # setup training, evaluation, sampling loop
     train_sample = copy.deepcopy(survey_grid)
-    total_cycle = 3
+    total_cycle = 600
     record = []
     for cycle in range(total_cycle):
         ts_start = time.time()
         # phase 1: train on sample
-        train_sample_count = len(train_sample)
         sample_params = {
                 'tile_shape':tile_shape,
                 'center_list':train_sample,
@@ -118,6 +117,7 @@ if __name__ == '__main__':
                 }
         sample_dataset = loader.get_dataset(**sample_params)
         sample_batch_count = np.ceil(len(train_sample)/batch_size).astype(int)
+        train_sample_count = len(train_sample)
         for batch_tile in tqdm.tqdm(
                 iterable=sample_dataset,
                 desc='train',
@@ -143,17 +143,16 @@ if __name__ == '__main__':
             data_prob=prob,
             sample_size=len(survey_grid),
             support_range=ROI_support_range,
-            grid_count=100,
+            grid_count=int(1e4),
             )
         train_sample = []
         for index in range(train_sample_array.shape[0]):
-            x = int(train_sample_array[index, 0])
-            y = int(train_sample_array[index, 1])
-            train_sample.append((x, y))
-        train_sample = loader.within_image(
-                tile_shape=tile_shape,
-                center_list=train_sample,
-                )
+            if np.isfinite(train_sample_array[index, :]).all()\
+                    and deeptile_dataset.within_range(
+                            point=train_sample_array[index, :].astype(int),
+                            tile_shape=tile_shape, 
+                            support_range=ROI_support_range):
+                        train_sample.append((x, y))
         ts_end = time.time()
         # report progress
         mean_loss = np.mean(np.hstack(loss_list))
