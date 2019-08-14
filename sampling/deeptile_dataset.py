@@ -54,6 +54,17 @@ def coordinate_convert(
                 'Accepted values are {{image, plot, array}}.'.format(to_coordinate))
     return (new_x, new_y)
 
+def within_range(
+        point: typing.List[float],
+        tile_shape: typing.List[float],
+        support_range: typing.List[typing.Tuple[float, float]],
+        ) -> bool:
+    criteria = []
+    for d in range(len(point)):
+        criteria.append(point[d]-tile_shape[d]/2 >= support_range[d][0])
+        criteria.append(point[d]+tile_shape[d]/2 < support_range[d][1])
+    return all(criteria)
+
 class tile_loader(object):
     def __init__(
             self,
@@ -142,77 +153,39 @@ class tile_loader(object):
                 tile_channel += 1
         return
 
-    def __within_image(
-            self,
-            tile_shape: typing.Tuple[int, int],
-            center: typing.Tuple[int, int],
-            ) -> bool:
-        '''
-        Input is in image coordinate; data is in array coordinate.
-        '''
-        # convert all input to array coordinate
-        wsi_array_shape = self.image['image'].shape
-        wsi_image_shape = (wsi_array_shape[1], wsi_array_shape[0])
-        x, y = coordinate_convert(
-                point=center,
-                shape=wsi_image_shape,
-                from_coordinate='image',
-                to_coordinate='array',
-                )
-        tile_array_shape = (tile_shape[1], tile_shape[0])
-        # now check criteria
-        x_half_tile_width = int(tile_array_shape[0]/2)
-        y_half_tile_width = int(tile_array_shape[1]/2)
-        criteria = [
-                x-x_half_tile_width >= 0,
-                x+x_half_tile_width < wsi_array_shape[0],
-                y-y_half_tile_width >= 0,
-                y+y_half_tile_width < wsi_array_shape[1],
-                ]
-        return all(criteria)
-
     def get_tile(self, 
             tile_shape: typing.Tuple[int, int],
             center: typing.Tuple[int, int],
-            validate: bool=True,
+            need_validate: bool=True,
             ) -> np.ndarray:
-        '''
-        Input is in image coordinate; data and output are in array coordinate.
-        '''
-        # self.__within_image takes image coordinate as input
-        if validate and not self.__within_image(tile_shape=tile_shape, center=center):
-            return None
-        # convert all input to array coordinate
-        wsi_array_shape = self.image['image'].shape
-        wsi_image_shape = (wsi_array_shape[1], wsi_array_shape[0])
-        x, y = coordinate_convert(
+        image_support_range = [(0, self.image['image'].shape[0]),
+                (0, self.image['image'].shape[1])]
+        pass_validate = within_range(
                 point=center,
-                shape=wsi_image_shape,
-                from_coordinate='image',
-                to_coordinate='array',
+                tile_shape=tile_shape,
+                support_range=image_support_range,
                 )
-        tile_array_shape = (tile_shape[1], tile_shape[0])
-        # now get tile
-        x_half_width = int(tile_array_shape[0]/2)
-        y_half_width = int(tile_array_shape[1]/2)
-        return self.image['image'][
-                    x-x_half_width:x+x_half_width,
-                    y-y_half_width:y+y_half_width, :]
+        if need_validate and not pass_validate:
+            return None
+        else:
+            x_low = int(center[0]-tile_shape[0]/2)
+            x_high = int(center[0]+tile_shape[0]/2)
+            y_low = int(center[1]-tile_shape[1]/2)
+            y_high = int(center[1]+tile_shape[1]/2)
+            return self.image['image'][x_low:x_high, y_low:y_high, :]
 
     def generate_tiles(self,
             tile_shape: typing.Tuple[int, int],
             center_list: typing.List[typing.Tuple[int, int]],
             ) -> np.ndarray:
-        valid_center_list = self.within_image(
-                tile_shape=tile_shape,
-                center_list=center_list,
-                )
-        for c in valid_center_list:
-            yield self.get_tile(
+        for center in center_list:
+            tile = self.get_tile(
                     tile_shape=tile_shape,
-                    center=c,
-                    validate=False,
+                    center=center,
+                    need_validate=True,
                     )
+            if tile is not None:
+                yield tile
 
     def get_dataset(
             self,
@@ -230,10 +203,3 @@ class tile_loader(object):
                 output_shapes=tile_array_shape+(self.count_channel,),
                 ).batch(batch_size)
 
-    def within_image(
-            self,
-            tile_shape: typing.Tuple[int, int],
-            center_list: typing.List[typing.Tuple[int, int]],
-            ) -> int:
-        return [c for c in center_list\
-                if self.__within_image(tile_shape=tile_shape, center=c)]
