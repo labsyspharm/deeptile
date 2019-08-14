@@ -128,6 +128,7 @@ class CVAE(tf.keras.Model):
                     loc=mu, scale_diag=sigma).prob(sample)
             # for numerical stability
             prob = prob.numpy()
+            prob[np.logical_not(np.isfinite(prob))] = np.finfo(np.float32).eps
             prob[prob < np.finfo(np.float32).eps] = np.finfo(np.float32).eps
             return prob
         p_data = pdf(z, mean, tf.math.exp(logvar * .5))
