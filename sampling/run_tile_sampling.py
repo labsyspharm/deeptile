@@ -105,7 +105,7 @@ if __name__ == '__main__':
     grid_batch_count = np.ceil(len(survey_grid)/batch_size).astype(int)
     # setup training, evaluation, sampling loop
     train_sample = copy.deepcopy(survey_grid)
-    total_cycle = 600
+    total_cycle = 10
     record = []
     for cycle in range(total_cycle):
         ts_start = time.time()
@@ -157,12 +157,12 @@ if __name__ == '__main__':
         # report progress
         mean_loss = np.mean(np.hstack(loss_list))
         runtime = ts_end-ts_start
-        print('cycle {} done, {} samples, grid loss {:.3f}, runtime {:.3f} sec.'.format(
+        print('cycle {} done, {} samples, grid loss {:.3f}, runtime {:.3f} sec/cycle.'.format(
             cycle, train_sample_count, mean_loss, runtime))
         # record history
         record.append([cycle, mean_loss, runtime])
     # save record to disk
     df = pd.DataFrame.from_records(record, columns=['cycle', 'loss', 'runtime (sec)'])
-    df.to_csv(record_filepath)
+    df.to_csv(record_filepath, index=False)
     print('Done.')
 
