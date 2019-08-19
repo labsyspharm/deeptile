@@ -89,9 +89,9 @@ if __name__ == '__main__':
         next_tile = next_tile[np.newaxis, ...]
         return next_point, next_tile
     # MCMC loop
-    batch_size = 100
+    batch_size = 1000
     ts_start = time.time()
-    total_step = int(1e3)
+    total_step = int(4e4)
     current_point = (ROI['image_x'], ROI['image_y'])
     record = []
     for step in tqdm.tqdm(

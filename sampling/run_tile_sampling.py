@@ -38,7 +38,6 @@ if __name__ == '__main__':
             'input_data/channel_info.csv'
     workspace_folderpath = '/n/scratch2/hungyiwu/deeptile_data/26531POST/'\
             'output/workspace'
-    record_filepath = './training_history.csv'
     # target ROI obtained from PathViewer on OMERO server
     ROI = {
         'image_x':23969,
@@ -105,7 +104,8 @@ if __name__ == '__main__':
     grid_batch_count = np.ceil(len(survey_grid)/batch_size).astype(int)
     # setup training, evaluation, sampling loop
     train_sample = copy.deepcopy(survey_grid)
-    total_cycle = 10
+    total_cycle = 100
+    epoch_per_cycle = 10
     record = []
     for cycle in range(total_cycle):
         ts_start = time.time()
@@ -118,12 +118,13 @@ if __name__ == '__main__':
         sample_dataset = loader.get_dataset(**sample_params)
         sample_batch_count = np.ceil(len(train_sample)/batch_size).astype(int)
         train_sample_count = len(train_sample)
-        for batch_tile in tqdm.tqdm(
-                iterable=sample_dataset,
-                desc='train',
-                total=sample_batch_count,
-                disable=not verbose):
-            cvae_model.compute_apply_gradients(batch_tile)
+        for epoch in range(epoch_per_cycle):
+            for batch_tile in tqdm.tqdm(
+                    iterable=sample_dataset,
+                    desc='train',
+                    total=sample_batch_count,
+                    disable=not verbose):
+                cvae_model.compute_apply_gradients(batch_tile)
         # phase 2: survey on grid
         loss_list = []
         for batch_tile in tqdm.tqdm(
@@ -137,7 +138,7 @@ if __name__ == '__main__':
         prob /= prob.sum() # note that regression loss >= 0
         # phase 3: generate next training sample
         if verbose:
-            print('Multivariate inverse transform sampling...')
+            print('Multivariate inverse transform sampling...', flush=True)
         train_sample_array = deeptile_sampling.multivariate_inverse_transform_sampling(
             data_X=survey_grid_array,
             data_prob=prob,
@@ -158,11 +159,25 @@ if __name__ == '__main__':
         mean_loss = np.mean(np.hstack(loss_list))
         runtime = ts_end-ts_start
         print('cycle {} done, {} samples, grid loss {:.3f}, runtime {:.3f} sec/cycle.'.format(
-            cycle, train_sample_count, mean_loss, runtime))
+            cycle, train_sample_count, mean_loss, runtime), flush=True)
         # record history
         record.append([cycle, mean_loss, runtime])
+        # check-point
+        if not np.isfinite(mean_loss):
+            print('non-finite loss detected: {}'.format(mean_loss), flush=True)
+            break
     # save record to disk
+    output_folderpath = os.path.join(
+            workspace_folderpath,
+            'output_{}'.format(os.environ['SLURM_JOBID']),
+            )
     df = pd.DataFrame.from_records(record, columns=['cycle', 'loss', 'runtime (sec)'])
-    df.to_csv(record_filepath, index=False)
-    print('Done.')
+    df.to_csv(os.path.join(output_folderpath, 'training_history.csv'), index=False)
+    cvae_model.save(
+            filepath=os.path.join(output_folderpath, 'CVAE_model.hdf5'),
+            overwrite=True,
+            include_optimizer=True,
+            save_format='h5',
+            )
+    print('Done.', flush=True)
 
