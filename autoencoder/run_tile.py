@@ -1,6 +1,7 @@
 import numpy as np
 import time
 import argparse
+import os
 
 import tqdm
 import tensorflow as tf
@@ -27,6 +28,8 @@ if __name__ == '__main__':
     ts_start = time.time()
     data_dict = load_tile_dataset.load(
             batch_size=10,
+            train_fraction=0.042, # ~6k, eta 1 day
+            test_fraction=0.0068, # ~1k
             )
     ts_end = time.time()
     print('Prepare dataset took {:.3f} sec.'.format(ts_end-ts_start))
@@ -39,15 +42,15 @@ if __name__ == '__main__':
             )
     ts_end = time.time()
     print('Prepare model took {:.3f} sec.'.format(ts_end-ts_start))
-    # epoch loop
-    total_epoch =30
+    # train/fit model on data
+    total_epoch =100
     print('Start epoch loop ({} epochs in total).'.format(total_epoch))
     for epoch in range(1, total_epoch + 1):
-        # train loop
+        # training
         ts_start = time.time()
         train_loss = []
-        for index, (train_x,) in tqdm.tqdm(
-                iterable=enumerate(data_dict['train_dataset']), 
+        for (train_x,) in tqdm.tqdm(
+                iterable=data_dict['train_dataset'],
                 desc='train', 
                 total=data_dict['train_batch_count'],
                 disable=not verbose,
@@ -55,10 +58,10 @@ if __name__ == '__main__':
             loss = cvae_model.compute_apply_gradients(train_x)
             train_loss.append(loss.numpy())
         train_elbo = -np.mean(train_loss)
-        # progress report
+        # evaluation
         test_loss = []
-        for index, (test_x,) in tqdm.tqdm(
-                iterable=enumerate(data_dict['test_dataset']), 
+        for (test_x,) in tqdm.tqdm(
+                iterable=data_dict['test_dataset'],
                 desc='test',
                 total=data_dict['test_batch_count'],
                 disable=not verbose,
@@ -69,8 +72,24 @@ if __name__ == '__main__':
         ts_end = time.time()
         print('Epoch: {}/{} done, Train ELBO: {:.3f} Test ELBO: {:.3f}, Runtime: {:.3f} sec.'\
                 .format(epoch, total_epoch, train_elbo, test_elbo, ts_end-ts_start))
-        if np.isnan(train_elbo) or np.isnan(test_elbo):
-            print('NaN detected, train loop terminated.')
+        if not np.isfinite(train_elbo) or not np.isfinite(test_elbo):
+            print('None finite ELBO detected, train loop terminated.')
             break
+    # save embedding for later analysis
+    output_folderpath = '/n/scratch2/hungyiwu/deeptile_data/26531POST/output/'
+    embedding_filename = 'embedding.npy'
+    embedding_filepath = os.path.join(output_folderpath, embedding_filename)
+    embedding_list = []
+    for (test_x,) in tqdm.tqdm(
+            iterable=data_dict['test_dataset'],
+            desc='embed',
+            total=data_dict['test_batch_count'],
+            disable=not verbose,
+            ):
+        mean, logvar = cvae_model.encode(train_x)
+        z = cvae_model.reparameterize(mean, logvar)
+        embedding_list.append(z.numpy())
+    embedding = np.concatenate(embedding_list, axis=0)
+    np.save(embedding_filepath, embedding)
     print('Done.')
 
