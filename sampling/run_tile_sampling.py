@@ -171,6 +171,9 @@ if __name__ == '__main__':
             workspace_folderpath,
             'output_{}'.format(os.environ['SLURM_JOBID']),
             )
+    if os.isdir(output_folderpath):
+        shutil.rmtree(output_folderpath)
+    os.path.mkdir(output_folderpath)
     df = pd.DataFrame.from_records(record, columns=['cycle', 'loss', 'runtime (sec)'])
     df.to_csv(os.path.join(output_folderpath, 'training_history.csv'), index=False)
     cvae_model.save(
